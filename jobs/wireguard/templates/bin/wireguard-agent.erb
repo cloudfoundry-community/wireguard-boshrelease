@@ -1,0 +1,178 @@
+#!/bin/bash
+# Long-lived supervisor for the kernel WireGuard interface, run by bpm.
+#
+# WireGuard itself is not a daemon — monit/bpm need a process to watch,
+# and this agent is it. Each reconcile cycle is idempotent:
+#   ensure interface exists -> wg syncconf -> addresses -> mtu/up -> routes
+# `wg syncconf` diffs and applies without resetting the interface, so
+# established peer sessions survive restarts and redeploys.
+#
+# On SIGTERM the agent exits WITHOUT touching the interface unless
+# wireguard.teardown_on_stop is true — restarts must not drop the tunnel.
+set -u
+
+export PATH=/var/vcap/packages/wireguard-tools/bin:${PATH}
+
+<%
+  routes = p('wireguard.routes').to_s
+  unless %w[auto off].include?(routes) || routes =~ /\A\d+\z/
+    raise "wireguard.routes must be 'auto', 'off', or a numeric table id (got '#{routes}')"
+  end
+  addresses = p('wireguard.addresses')
+  raise 'wireguard.addresses must be a non-empty array of CIDRs' \
+    if !addresses.is_a?(Array) || addresses.empty?
+  peer_allowed_ips = p('wireguard.peers').flat_map { |peer| peer['allowed_ips'] || [] }.uniq
+-%>
+IFACE='<%= p('wireguard.interface') %>'
+CONF=/var/vcap/jobs/wireguard/config/wg.conf
+MTU='<%= p('wireguard.mtu') %>'
+ROUTES='<%= routes %>'
+TEARDOWN_ON_STOP=<%= p('wireguard.teardown_on_stop') ? 'true' : 'false' %>
+SYNC_INTERVAL=<%= p('wireguard.agent.sync_interval_secs').to_i %>
+
+ADDRESSES=(
+<% addresses.each do |addr| -%>
+  '<%= addr %>'
+<% end -%>
+)
+
+PEER_ALLOWED_IPS=(
+<% peer_allowed_ips.each do |cidr| -%>
+  '<%= cidr %>'
+<% end -%>
+)
+
+log() {
+  echo "[wireguard-agent] $(date -u +%FT%TZ) $*"
+}
+
+hooks_pre_up() {
+<% p('wireguard.hooks.pre_up').each do |line| -%>
+  <%= line %>
+<% end -%>
+  :
+}
+
+hooks_post_up() {
+<% p('wireguard.hooks.post_up').each do |line| -%>
+  <%= line %>
+<% end -%>
+  :
+}
+
+hooks_pre_down() {
+<% p('wireguard.hooks.pre_down').each do |line| -%>
+  <%= line %>
+<% end -%>
+  :
+}
+
+hooks_post_down() {
+<% p('wireguard.hooks.post_down').each do |line| -%>
+  <%= line %>
+<% end -%>
+  :
+}
+
+ensure_interface() {
+  if ! ip link show "${IFACE}" >/dev/null 2>&1; then
+    log "creating interface ${IFACE}"
+    ip link add "${IFACE}" type wireguard
+  fi
+}
+
+sync_config() {
+  wg syncconf "${IFACE}" "${CONF}"
+}
+
+ensure_addresses() {
+  local addr
+  for addr in "${ADDRESSES[@]}"; do
+    ip addr replace "${addr}" dev "${IFACE}"
+  done
+}
+
+ensure_link_up() {
+  if [[ -n "${MTU}" ]]; then
+    ip link set mtu "${MTU}" dev "${IFACE}"
+  fi
+  ip link set up dev "${IFACE}"
+}
+
+ensure_routes() {
+  local cidr
+  case "${ROUTES}" in
+    off)
+      ;;
+    auto)
+      for cidr in "${PEER_ALLOWED_IPS[@]:+${PEER_ALLOWED_IPS[@]}}"; do
+        ip route replace "${cidr}" dev "${IFACE}"
+      done
+      ;;
+    *)
+      for cidr in "${PEER_ALLOWED_IPS[@]:+${PEER_ALLOWED_IPS[@]}}"; do
+        ip route replace "${cidr}" dev "${IFACE}" table "${ROUTES}"
+      done
+      ;;
+  esac
+}
+
+reconcile() {
+  ensure_interface \
+    && sync_config \
+    && ensure_addresses \
+    && ensure_link_up \
+    && ensure_routes
+}
+
+teardown() {
+  log "tearing down interface ${IFACE}"
+  hooks_pre_down || log "WARN: pre_down hook failed"
+  ip link del "${IFACE}" 2>/dev/null || true
+  hooks_post_down || log "WARN: post_down hook failed"
+}
+
+on_term() {
+  if [[ "${TEARDOWN_ON_STOP}" == "true" ]]; then
+    teardown
+  else
+    log "stopping agent; leaving ${IFACE} up (teardown_on_stop=false)"
+  fi
+  exit 0
+}
+trap on_term TERM INT
+
+# ---------------------------------------------------------------------------
+# Initial convergence — hooks run once around it, not on every cycle.
+# ---------------------------------------------------------------------------
+log "starting: iface=${IFACE} routes=${ROUTES} teardown_on_stop=${TEARDOWN_ON_STOP} interval=${SYNC_INTERVAL}s"
+
+if ! hooks_pre_up; then
+  log "ERROR: pre_up hook failed"
+  exit 1
+fi
+
+if ! reconcile; then
+  log "ERROR: initial convergence failed"
+  exit 1
+fi
+
+if ! hooks_post_up; then
+  log "ERROR: post_up hook failed"
+  exit 1
+fi
+
+log "interface ${IFACE} converged"
+
+# ---------------------------------------------------------------------------
+# Reconcile loop — failures are logged and retried next cycle, never fatal:
+# monit flapping would not fix an unplugged kernel any faster. Sleep runs
+# in the background so the TERM trap fires promptly.
+# ---------------------------------------------------------------------------
+while true; do
+  sleep "${SYNC_INTERVAL}" &
+  wait $! || true
+  if ! reconcile; then
+    log "WARN: reconcile cycle failed; retrying in ${SYNC_INTERVAL}s"
+  fi
+done

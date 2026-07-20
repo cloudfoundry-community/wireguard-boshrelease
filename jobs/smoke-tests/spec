@@ -1,0 +1,45 @@
+---
+name: smoke-tests
+
+description: |
+  Errand verifying the local WireGuard endpoint is healthy. COLOCATE this
+  job on the wireguard instance group (do not give it its own errand VM):
+  WireGuard silently drops unauthenticated UDP, so a remote errand VM has
+  nothing observable to probe. Run with:
+
+    bosh -d <deployment> run-errand smoke-tests
+
+  Checks: `wg show` succeeds, the interface is UP with an address, the
+  UDP listen port is bound, the live peer count matches the rendered
+  wg.conf, and (optionally) every peer has a sufficiently fresh
+  handshake.
+
+packages:
+  - wireguard-tools
+
+templates:
+  bin/run.erb: bin/run
+
+properties:
+  wireguard.interface:
+    description: |
+      WireGuard interface to verify. Must match the wireguard job's
+      wireguard.interface.
+    default: wg0
+
+  wireguard.listen_port:
+    description: |
+      UDP port expected to be bound. Must match the wireguard job's
+      wireguard.listen_port.
+    default: 51820
+
+  smoke_tests.require_handshake:
+    description: |
+      When true, fail unless every configured peer has completed a
+      handshake within handshake_max_age_secs. Leave false for
+      road-warrior topologies where peers may be offline at errand time.
+    default: false
+
+  smoke_tests.handshake_max_age_secs:
+    description: Maximum acceptable age of a peer handshake, in seconds.
+    default: 180

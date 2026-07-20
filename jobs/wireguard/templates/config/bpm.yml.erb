@@ -1,0 +1,12 @@
+---
+processes:
+- name: wireguard
+  executable: /var/vcap/jobs/wireguard/bin/wireguard-agent
+
+  # privileged is required: creating/configuring a kernel WireGuard
+  # interface needs CAP_NET_ADMIN, which bpm's capabilities: whitelist
+  # does not offer (only NET_BIND_SERVICE). Tighten to a capability
+  # grant if/when bpm supports NET_ADMIN. bpm does NOT unshare the
+  # network namespace, so the interface lands in the host netns.
+  unsafe:
+    privileged: true

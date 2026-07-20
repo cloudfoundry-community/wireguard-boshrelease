@@ -1,0 +1,5 @@
+check process wireguard
+  with pidfile /var/vcap/sys/run/bpm/wireguard/wireguard.pid
+  start program "/var/vcap/jobs/bpm/bin/bpm start wireguard"
+  stop program "/var/vcap/jobs/bpm/bin/bpm stop wireguard"
+  group vcap

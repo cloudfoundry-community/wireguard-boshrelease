@@ -1,0 +1,134 @@
+---
+name: wireguard
+
+description: |
+  WireGuard VPN endpoint. Creates and reconciles a kernel WireGuard
+  interface with explicit ip/wg commands (no wg-quick), managed by bpm.
+  Peer changes apply via `wg syncconf` on redeploy — established sessions
+  survive without a tunnel drop. Requires a stemcell whose kernel ships
+  the wireguard module (ubuntu-noble).
+
+  NAT/firewall policy is intentionally out of scope: colocate the
+  `iptables` job from the networking release for MASQUERADE and FORWARD
+  rules. This job only toggles ip_forward sysctls when forwarding is
+  enabled.
+
+packages:
+  - wireguard-tools
+
+templates:
+  bin/pre-start.erb:        bin/pre-start
+  bin/wireguard-agent.erb:  bin/wireguard-agent
+  bin/drain.erb:            bin/drain
+  config/bpm.yml.erb:       config/bpm.yml
+  config/wg.conf.erb:       config/wg.conf
+
+provides:
+  - name: wireguard
+    type: wireguard
+    properties:
+      - wireguard.listen_port
+      - wireguard.public_key
+      - wireguard.addresses
+
+properties:
+  wireguard.interface:
+    description: Name of the WireGuard network interface to manage.
+    default: wg0
+
+  wireguard.addresses:
+    description: |
+      Array of CIDR addresses assigned to the interface, e.g.
+      [10.20.30.1/24]. Required — the first entry is conventionally the
+      server address inside the tunnel network.
+    example: [10.20.30.1/24]
+
+  wireguard.listen_port:
+    description: UDP port WireGuard listens on.
+    default: 51820
+
+  wireguard.private_key:
+    description: |
+      Base64-encoded Curve25519 private key for this endpoint. Required.
+      Source from vault/CredHub — never commit literal keys. pre-start
+      cross-validates it against wireguard.public_key and fails fast on
+      drift.
+
+  wireguard.public_key:
+    description: |
+      Base64-encoded Curve25519 public key matching
+      wireguard.private_key. Required. Published on the wireguard link
+      and cross-validated in pre-start.
+
+  wireguard.mtu:
+    description: |
+      MTU for the interface. Empty string leaves the kernel default
+      (1420 for typical underlays).
+    default: ""
+
+  wireguard.fwmark:
+    description: |
+      Firewall mark (fwmark) for tunnel packets. Empty string disables.
+    default: ""
+
+  wireguard.routes:
+    description: |
+      Route management policy. "auto" installs `ip route replace` for
+      every peer allowed_ip via the interface; "off" installs nothing;
+      a numeric value installs routes into that routing table id.
+    default: auto
+
+  wireguard.peers:
+    description: |
+      Array of peer entries:
+        name                 - optional label (comment in wg.conf)
+        public_key           - required, base64 Curve25519
+        allowed_ips          - required array of CIDRs routed to the peer
+        endpoint             - optional host:port (omit for road-warrior
+                               peers that dial in)
+        persistent_keepalive - optional seconds
+        preshared_key        - optional base64 PSK
+    default: []
+
+  wireguard.forwarding.ipv4:
+    description: |
+      Enable net.ipv4.ip_forward sysctl (persisted via
+      /etc/sysctl.d/60-wireguard.conf). NAT rules are NOT installed —
+      colocate the networking release's iptables job for that.
+    default: false
+
+  wireguard.forwarding.ipv6:
+    description: Enable net.ipv6.conf.all.forwarding sysctl.
+    default: false
+
+  wireguard.hooks.pre_up:
+    description: Array of shell lines run before the interface is brought up.
+    default: []
+
+  wireguard.hooks.post_up:
+    description: Array of shell lines run after the interface is up.
+    default: []
+
+  wireguard.hooks.pre_down:
+    description: |
+      Array of shell lines run before interface teardown (only when
+      teardown actually happens — see wireguard.teardown_on_stop).
+    default: []
+
+  wireguard.hooks.post_down:
+    description: Array of shell lines run after interface teardown.
+    default: []
+
+  wireguard.teardown_on_stop:
+    description: |
+      When true, monit stop / drain deletes the WireGuard interface.
+      Default false: restarts and redeploys leave the tunnel up and
+      re-converge via `wg syncconf`, so peer sessions survive.
+    default: false
+
+  wireguard.agent.sync_interval_secs:
+    description: |
+      Reconcile loop period for the wireguard-agent supervisor. Each
+      cycle re-ensures interface presence, addresses, config sync, and
+      routes (all idempotent).
+    default: 30

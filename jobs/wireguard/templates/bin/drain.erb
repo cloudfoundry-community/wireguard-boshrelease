@@ -1,0 +1,6 @@
+#!/bin/bash
+# Drain protocol: nothing to quiesce — peer sessions are stateless from
+# the director's perspective and the interface is left up on stop unless
+# wireguard.teardown_on_stop is set (handled by the agent's TERM trap).
+echo 0
+exit 0

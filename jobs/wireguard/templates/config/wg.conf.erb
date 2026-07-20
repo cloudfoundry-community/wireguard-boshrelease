@@ -1,0 +1,35 @@
+<%
+  # wg setconf / syncconf format — [Interface] + [Peer] sections only.
+  # No Address/MTU/DNS keys here: those are wg-quick extensions; the
+  # agent applies addresses and MTU with explicit ip commands.
+  peers = p('wireguard.peers')
+-%>
+[Interface]
+ListenPort = <%= p('wireguard.listen_port') %>
+PrivateKey = <%= p('wireguard.private_key') %>
+<% if p('wireguard.fwmark').to_s != '' -%>
+FwMark = <%= p('wireguard.fwmark') %>
+<% end -%>
+<% peers.each do |peer|
+     raise "wireguard.peers entry missing public_key" unless peer['public_key']
+     allowed = peer['allowed_ips']
+     raise "wireguard.peers entry #{peer['name'] || peer['public_key']} missing allowed_ips" \
+       if allowed.nil? || allowed.empty?
+-%>
+
+[Peer]
+<% if peer['name'] -%>
+# name: <%= peer['name'] %>
+<% end -%>
+PublicKey = <%= peer['public_key'] %>
+AllowedIPs = <%= allowed.join(', ') %>
+<% if peer['preshared_key'] -%>
+PresharedKey = <%= peer['preshared_key'] %>
+<% end -%>
+<% if peer['endpoint'] -%>
+Endpoint = <%= peer['endpoint'] %>
+<% end -%>
+<% if peer['persistent_keepalive'] -%>
+PersistentKeepalive = <%= peer['persistent_keepalive'] %>
+<% end -%>
+<% end -%>

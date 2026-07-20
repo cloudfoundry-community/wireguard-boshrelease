@@ -1,0 +1,73 @@
+#!/bin/bash
+# WireGuard smoke-test errand. Colocated on the wireguard instance group —
+# verifies the local interface, not a remote endpoint (unauthenticated UDP
+# probes are silently dropped by design).
+set -e -u -o pipefail
+
+export PATH=/var/vcap/packages/wireguard-tools/bin:${PATH}
+
+IFACE='<%= p('wireguard.interface') %>'
+PORT=<%= p('wireguard.listen_port') %>
+REQUIRE_HANDSHAKE=<%= p('smoke_tests.require_handshake') ? 'true' : 'false' %>
+MAX_AGE=<%= p('smoke_tests.handshake_max_age_secs').to_i %>
+WG_CONF=/var/vcap/jobs/wireguard/config/wg.conf
+
+fail() {
+  echo "SMOKE FAIL: $*" >&2
+  exit 1
+}
+
+ok() {
+  echo "SMOKE OK:   $*"
+}
+
+# 1. wg can talk to the interface
+wg show "${IFACE}" >/dev/null 2>&1 \
+  || fail "wg show ${IFACE} failed — interface missing or not WireGuard"
+ok "wg show ${IFACE}"
+
+# 2. Interface is UP and has at least one address
+ip link show dev "${IFACE}" | grep -q 'state UP\|UNKNOWN' \
+  || fail "interface ${IFACE} is not up"
+ip -o addr show dev "${IFACE}" | grep -q 'inet' \
+  || fail "interface ${IFACE} has no address"
+ok "interface ${IFACE} up with address"
+
+# 3. UDP listen port is bound
+ss -ulnH | awk '{print $4}' | grep -Eq "[:.]${PORT}\$" \
+  || fail "UDP port ${PORT} is not listening"
+ok "UDP port ${PORT} listening"
+
+# 4. Live peer count matches the rendered config (colocated guarantee:
+#    the wireguard job's wg.conf is on this VM)
+if [[ -r "${WG_CONF}" ]]; then
+  expected=$(grep -c '^\[Peer\]' "${WG_CONF}" || true)
+  actual=$(wg show "${IFACE}" peers | grep -c . || true)
+  [[ "${expected}" == "${actual}" ]] \
+    || fail "peer count mismatch — config has ${expected}, interface has ${actual}"
+  ok "peer count matches config (${actual})"
+else
+  echo "SMOKE WARN: ${WG_CONF} not readable — skipping peer count check" >&2
+fi
+
+# 5. Optional handshake freshness
+if [[ "${REQUIRE_HANDSHAKE}" == "true" ]]; then
+  now=$(date +%s)
+  stale=0
+  while read -r peer ts; do
+    [[ -n "${peer}" ]] || continue
+    if [[ "${ts}" == "0" ]]; then
+      echo "SMOKE FAIL: peer ${peer} has never completed a handshake" >&2
+      stale=1
+    elif (( now - ts > MAX_AGE )); then
+      echo "SMOKE FAIL: peer ${peer} handshake is $(( now - ts ))s old (max ${MAX_AGE}s)" >&2
+      stale=1
+    fi
+  done < <(wg show "${IFACE}" latest-handshakes)
+  [[ "${stale}" == "0" ]] || fail "stale or missing peer handshakes"
+  ok "all peer handshakes fresher than ${MAX_AGE}s"
+fi
+
+echo ""
+echo "=== ALL SMOKE CHECKS PASSED ==="
+exit 0

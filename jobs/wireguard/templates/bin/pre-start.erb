@@ -1,0 +1,65 @@
+#!/bin/bash
+# Fail-fast environment checks before bpm starts the wireguard-agent.
+# Runs as root outside bpm.
+set -eu
+
+export PATH=/var/vcap/packages/wireguard-tools/bin:${PATH}
+
+# ---------------------------------------------------------------------------
+# 1. Kernel module probe — this release supports kernel WireGuard only
+#    (no wireguard-go userspace fallback). ubuntu-noble stemcells ship the
+#    module in-kernel; anything older fails here.
+# ---------------------------------------------------------------------------
+probe="wgprobe$$"
+if ! ip link add "${probe}" type wireguard 2>/dev/null; then
+  echo "ERROR: kernel cannot create a wireguard interface." >&2
+  echo "       The wireguard kernel module is unavailable on this stemcell." >&2
+  echo "       This release requires ubuntu-noble (kernel >= 5.6)." >&2
+  exit 1
+fi
+ip link del "${probe}"
+
+# ---------------------------------------------------------------------------
+# 2. Key cross-validation — derive the public key from the configured
+#    private key and require it to match wireguard.public_key. Catches
+#    drifted/mismatched vault entries before the tunnel comes up with a
+#    key peers don't trust. Key material is never printed.
+# ---------------------------------------------------------------------------
+derived="$(printf '%s' '<%= p('wireguard.private_key') %>' | wg pubkey)"
+expected='<%= p('wireguard.public_key') %>'
+if [[ "${derived}" != "${expected}" ]]; then
+  echo "ERROR: wireguard.public_key does not match wireguard.private_key." >&2
+  echo "       The stored keypair has drifted — regenerate or restore the" >&2
+  echo "       matching pair in the secrets store, then redeploy." >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# 3. IP forwarding sysctls — persisted so they survive reboots. When
+#    forwarding is disabled here we only remove our own drop-in and leave
+#    the runtime values alone: another colocated job (e.g. openvpn) may
+#    legitimately require forwarding.
+# ---------------------------------------------------------------------------
+SYSCTL_FILE=/etc/sysctl.d/60-wireguard.conf
+<% fwd4 = p('wireguard.forwarding.ipv4'); fwd6 = p('wireguard.forwarding.ipv6') -%>
+<% if fwd4 || fwd6 -%>
+{
+  echo "# Managed by the wireguard BOSH job — do not edit."
+<%   if fwd4 -%>
+  echo "net.ipv4.ip_forward = 1"
+<%   end -%>
+<%   if fwd6 -%>
+  echo "net.ipv6.conf.all.forwarding = 1"
+<%   end -%>
+} > "${SYSCTL_FILE}"
+<%   if fwd4 -%>
+sysctl -q -w net.ipv4.ip_forward=1
+<%   end -%>
+<%   if fwd6 -%>
+sysctl -q -w net.ipv6.conf.all.forwarding=1
+<%   end -%>
+<% else -%>
+rm -f "${SYSCTL_FILE}"
+<% end -%>
+
+exit 0

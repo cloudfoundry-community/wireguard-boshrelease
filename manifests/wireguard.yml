@@ -1,0 +1,42 @@
+---
+name: wireguard
+
+releases:
+- name: wireguard
+  version: latest
+- name: bpm
+  version: latest
+
+stemcells:
+- alias: default
+  os: ubuntu-noble
+  version: latest
+
+update:
+  canaries: 1
+  max_in_flight: 1
+  serial: true
+  canary_watch_time: 5000-120000
+  update_watch_time: 5000-120000
+
+instance_groups:
+- name: wireguard
+  instances: 1
+  azs: [z1]
+  vm_type: wireguard
+  stemcell: default
+  networks:
+  - name: wireguard
+  jobs:
+  - name: bpm
+    release: bpm
+  - name: wireguard
+    release: wireguard
+    properties:
+      wireguard:
+        addresses: [10.20.30.1/24]
+        private_key: ((wireguard_private_key))
+        public_key: ((wireguard_public_key))
+  # Colocated errand — run with: bosh run-errand smoke-tests
+  - name: smoke-tests
+    release: wireguard

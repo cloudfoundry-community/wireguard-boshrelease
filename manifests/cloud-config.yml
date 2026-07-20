@@ -1,0 +1,82 @@
+---
+# Sample BOSH cloud-config for wireguard deployments.
+#
+# cloud_properties shown are IaaS-agnostic stubs. Replace the
+# cloud_properties blocks for your IaaS before running
+# `bosh update-cloud-config`.
+#
+# Remember: WireGuard needs UDP 51820 (or your listen_port) reachable
+# from clients — security group / firewall provisioning is outside BOSH.
+
+azs:
+- name: z1
+  cloud_properties: {}
+  # aws:       cloud_properties: { availability_zone: us-east-1a }
+  # vsphere:   cloud_properties: { datacenters: [{name: dc0, clusters: [{cluster0: {}}]}] }
+  # openstack: cloud_properties: { availability_zone: nova }
+  # pve:       cloud_properties: { datacenter: pve0, node: pve-node-1 }
+
+networks:
+# wireguard: production network used by the main manifest.
+- name: wireguard
+  type: manual
+  subnets:
+  - range: 10.0.10.0/24          # adjust to your environment
+    gateway: 10.0.10.1
+    az: z1
+    static: [10.0.10.10-10.0.10.13]
+    reserved: [10.0.10.1-10.0.10.9]
+    cloud_properties: {}
+    # aws:       cloud_properties: { subnet: subnet-xxxxxxxx }
+    # vsphere:   cloud_properties: { name: wireguard-pg }
+    # openstack: cloud_properties: { net_id: <neutron-network-uuid> }
+    # pve:       cloud_properties: { network_name: vmbr0 }
+
+# default: used by bosh-lite (via manifests/ops/standalone.yml).
+- name: default
+  type: manual
+  subnets:
+  - range: 10.244.0.0/24
+    gateway: 10.244.0.1
+    az: z1
+    static: [10.244.0.10-10.244.0.30]
+    reserved: [10.244.0.1-10.244.0.9]
+    cloud_properties: {}
+
+vm_types:
+- name: wireguard
+  cloud_properties: {}
+  # WireGuard is CPU-light — small instances suffice; scale with peer
+  # count and expected throughput.
+  #
+  # aws:
+  #   cloud_properties:
+  #     instance_type: t3.micro
+  #     ephemeral_disk: { size: 10240, type: gp3 }
+  #
+  # vsphere:
+  #   cloud_properties:
+  #     cpu: 2
+  #     ram: 2048
+  #     disk: 16384
+  #
+  # openstack:
+  #   cloud_properties:
+  #     instance_type: m1.1
+  #
+  # pve:
+  #   cloud_properties:
+  #     cpu: 2
+  #     memory: 2048       # MB
+  #     disk: 16384        # MB
+
+compilation:
+  workers: 4
+  reuse_compilation_vms: true
+  az: z1
+  network: default
+  cloud_properties: {}
+  # aws:       cloud_properties: { instance_type: m5.large }
+  # vsphere:   cloud_properties: { cpu: 2, ram: 4096, disk: 10240, datacenters: [{name: dc0, clusters: [{cluster0: {}}]}] }
+  # openstack: cloud_properties: { instance_type: m1.large }
+  # pve:       cloud_properties: { cpu: 2, memory: 4096, disk: 10240 }

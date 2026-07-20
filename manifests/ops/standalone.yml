@@ -1,0 +1,7 @@
+---
+# Single-node evaluation deployment on the bosh-lite style `default`
+# network.
+- type: replace
+  path: /instance_groups/name=wireguard/networks
+  value:
+  - name: default

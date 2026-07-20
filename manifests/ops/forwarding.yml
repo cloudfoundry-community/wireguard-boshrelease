@@ -1,0 +1,8 @@
+---
+# Enable IPv4 forwarding so tunnel clients can reach networks behind
+# this endpoint. NAT/MASQUERADE rules are NOT included — colocate the
+# networking release's iptables job (or manage firewall policy out of
+# band) to complete the path.
+- type: replace
+  path: /instance_groups/name=wireguard/jobs/name=wireguard/properties/wireguard/forwarding?/ipv4
+  value: true

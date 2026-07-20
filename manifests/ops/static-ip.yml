@@ -1,0 +1,8 @@
+---
+# Pin the wireguard endpoint to a static IP from the network's static
+# range — clients need a stable endpoint address.
+- type: replace
+  path: /instance_groups/name=wireguard/networks
+  value:
+  - name: wireguard
+    static_ips: [((wireguard_static_ip))]

@@ -1,0 +1,30 @@
+#!/bin/bash
+set -eu
+
+# Build wireguard-tools (wg, wg-quick) from the upstream source tarball.
+# Plain C with no library dependencies — only make + cc from the
+# compilation VM's build-essential toolchain are required.
+
+archive=$(ls wireguard-tools/wireguard-tools-*.tar.xz 2>/dev/null | head -n1)
+if [ -z "${archive}" ]; then
+  echo "wireguard-tools tarball not found — check blob key matches spec glob" >&2
+  exit 1
+fi
+
+tar -xJf "${archive}"
+srcdir=$(find . -maxdepth 1 -type d -name 'wireguard-tools-*' | head -n1)
+if [ -z "${srcdir}" ]; then
+  echo "extracted wireguard-tools source directory not found" >&2
+  exit 1
+fi
+
+# wg-quick is installed for operator debugging only; the wireguard job
+# drives the interface with explicit ip/wg commands.
+make -C "${srcdir}/src" -j"$(nproc)"
+make -C "${srcdir}/src" install \
+  PREFIX="${BOSH_INSTALL_TARGET}" \
+  WITH_WGQUICK=yes \
+  WITH_SYSTEMDUNITS=no \
+  WITH_BASHCOMPLETION=no
+
+"${BOSH_INSTALL_TARGET}/bin/wg" --version

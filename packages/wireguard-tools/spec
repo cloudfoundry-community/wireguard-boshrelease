@@ -1,0 +1,9 @@
+---
+name: wireguard-tools
+
+dependencies: []
+
+files:
+  # Upstream source tarball from git.zx2c4.com — built from source in
+  # packaging (plain C, zero library dependencies beyond libc).
+  - wireguard-tools/wireguard-tools-*.tar.xz

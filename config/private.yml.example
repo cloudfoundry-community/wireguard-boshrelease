@@ -1,0 +1,7 @@
+---
+# git-ignored. Copy to config/private.yml and fill in credentials.
+blobstore:
+  provider: s3
+  options:
+    access_key_id: REPLACE_ME
+    secret_access_key: REPLACE_ME

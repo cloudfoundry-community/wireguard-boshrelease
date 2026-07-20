@@ -1,0 +1,28 @@
+name: wireguard
+version: 0.1.0
+commit_hash: 5c1ded5
+uncommitted_changes: false
+jobs:
+- name: smoke-tests
+  version: db07276f1e3355bf870ae7404b7f0c80670d11b3384b0b0074ce3dd7512bb971
+  fingerprint: db07276f1e3355bf870ae7404b7f0c80670d11b3384b0b0074ce3dd7512bb971
+  sha1: sha256:2663c460c99c62744b611c7baec18a2f7c6c8df10954d46d3a7e74325429a990
+  packages:
+  - wireguard-tools
+- name: wireguard
+  version: 05aaf079ab25c1171683daa40416fb276f374b3e12211cf604e8d2deca007202
+  fingerprint: 05aaf079ab25c1171683daa40416fb276f374b3e12211cf604e8d2deca007202
+  sha1: sha256:7d6e30bb422b4089d3cdb2a21a7bc4849546f8eae8e27bf7a5d00c7107a6c1ea
+  packages:
+  - wireguard-tools
+packages:
+- name: wireguard-tools
+  version: 8d78227ed9b3786e0465cefa9e2f095fa4b0236374c056ab3034edd9ddc025ff
+  fingerprint: 8d78227ed9b3786e0465cefa9e2f095fa4b0236374c056ab3034edd9ddc025ff
+  sha1: sha256:3a4079e297ebc950763ab30580174c8e261fafd0a52cf755bcec359d5d35f16e
+  dependencies: []
+license:
+  version: bf5cbc0e10500943ba211c0b2733ceecc1e2350e277b153b2239ef5de1a13229
+  fingerprint: bf5cbc0e10500943ba211c0b2733ceecc1e2350e277b153b2239ef5de1a13229
+  sha1: sha256:4d835358aa4de1b4a32dcec9c6271e3deff58f9f7004b462d2d888b98ab35d4b
+no_compression: false
